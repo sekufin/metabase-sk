@@ -10,104 +10,88 @@ El rol `metabase_ro` tiene `SELECT` exclusivamente sobre `analytics.*`. `public.
 
 ---
 
-## `analytics.polizas` — pólizas con fechas (1,967 filas)
+## `analytics.polizas` — pólizas con fechas, asesor, agente, grupo (~1,967 filas)
 
-**Cuándo usar**: cualquier query con dimensión temporal (producción por mes, renovaciones en el trimestre, cancelaciones YTD, etc.).
-
-**Cuándo NO usar**: si la query agrupa por `asesor` o `aseguradora` (no están en esta vista) → usa `polizas_resumen`.
+**Cuándo usar**: queries con dimensión temporal, o que agrupen por aseguradora/producto/grupo/agente/referidor.
 
 | Columna | Tipo | Descripción |
 |---|---|---|
+| `poliza_id` | bigint | ID dentro del ramo. **No es PK global** — combinar con `ramo` si necesitas uniqueness |
 | `ramo` | text | `'Vida' \| 'Autos' \| 'Daños' \| 'GMM'` |
 | `numero_de_poliza` | varchar | Identificador emitido por la aseguradora |
-| `fecha_desde` | date | Inicio de vigencia. **Esta es la fecha de emisión para queries de producción.** |
+| `fecha_desde` | date | Inicio de vigencia. **Fecha de emisión para producción** |
 | `fecha_hasta` | date | Fin de vigencia |
+| `fecha_de_cancelacion` | date | NULL si no cancelada |
 | `prima` | numeric | Prima total (con impuestos y recargos) |
 | `prima_neta` | numeric | Prima sin impuestos ni recargos |
-| `estatus` | varchar | `'Vigente' \| 'Cancelada' \| 'Renovada'` |
-| `linea_negocio` | varchar | `'Personal' \| 'Comercial'` |
-| `subramo` | varchar | Subcategoría (p.ej. Daños → 'Hogar', 'Incendio', 'RC') |
-| `aseguradora_id` | bigint | FK (nombre no expuesto aquí — usa `polizas_resumen` si necesitas el nombre) |
+| `estatus` | varchar | `'Vigente' \| 'Cancelada' \| 'Renovada'` (Vida también: `'Plazo de pago finalizado'`, `'Terminado'`) |
+| `linea_negocio` | varchar | `'Personal' \| 'Comercial'` (en testing casi todo Personal) |
+| `subramo` | varchar | Subcategoría (Daños → 'Hogar', 'Incendio', 'RC'; etc.) |
+| `aseguradora_id` | bigint | FK |
+| `aseguradora_nombre` | varchar | Nombre legible (GNP, Qualitas, AXA, etc.) — LEFT JOINed |
+| `producto_id` | bigint | FK |
+| `producto_nombre` | varchar | Nombre del producto — LEFT JOINed |
 | `contratante_id` | bigint | FK al contratante |
-| `producto_id` | bigint | FK al producto |
-| `fecha_de_cancelacion` | date | NULL si la póliza no ha sido cancelada |
-| `numero_renovacion` | integer | ⚠️ **No usar para filtrar renovaciones**. En esta DB siempre es `0` (Vida/GMM) o NULL (Autos/Daños). Para identificar renovaciones usa `estatus = 'Renovada'`. |
+| `grupo` | varchar | Grupo empresarial/familiar (texto libre, no FK). ⚠️ Daños no tiene columna (NULL). En testing todos NULL |
+| `referidor_id` | bigint | FK a `analytics.referidores`. En testing: no hay matches |
+| `clave_de_agente` | varchar | Clave del agente autorizado por la aseguradora |
+| `nombre_de_agente` | varchar | **Agente intermediario autorizado por la aseguradora** (no es el comercial interno de Sekufin) |
 
 ### Distribución actual
 
-| Ramo | Filas | Prima total |
-|---|---|---|
-| Autos | 577 | $7,258,222 |
-| Daños | 189 | $2,721,905 |
-| GMM | 703 | $45,164,732 |
-| Vida | 498 | $39,353,112 |
+| Ramo | Pólizas | Aseguradoras | Agentes distintos |
+|---|---|---|---|
+| Autos | 577 | 4 | 21 |
+| Daños | 189 | 4 | 16 |
+| GMM | 703 | 9 | 32 |
+| Vida | 498 | 7 | 25 |
+
+Top aseguradora: **GNP** (1,414 pólizas, 72% del total). Los nombres oficiales son largos ("Grupo Nacional Provincial, S.A.B."); al graficar conviene un `CASE` para acortar (`ILIKE 'grupo nacional%'` → `'GNP'`).
 
 ### Limitaciones conocidas
 
-- `numero_renovacion` **no es confiable** en esta DB (ver nota en la columna). Usa `estatus` para distinguir nuevas vs. renovadas.
-- No tiene `asesor` ni `aseguradora` (nombre). Join imposible directamente → usa `polizas_resumen` para esos cortes.
-- `estatus` tiene valores extra en Vida: `'Plazo de pago finalizado'`, `'Terminado'` (raros, <5 rows). Los 3 canónicos son `Vigente`, `Cancelada`, `Renovada`.
+- `numero_renovacion` **no es confiable** — siempre 0 (Vida/GMM) o NULL (Autos/Daños). Usa `estatus` para distinguir nuevas vs renovadas.
+- `grupo` en testing siempre NULL (columna existe en Vida/Autos/GMM, ausente en Daños).
+- `referidor_id` no matchea con `analytics.referidores.id` en testing.
 
 ---
 
-## `analytics.polizas_resumen` — pólizas con asesor y aseguradora (1,122 filas)
+## `analytics.polizas_resumen` — pólizas con asesor interno (~1,122 filas)
 
-Wrapper de la materialized view `dashboard_overview` del core. **Sin fechas.**
+Wrapper de la MV `dashboard_overview`. **Sin fechas**, con nombre del asesor comercial interno.
 
-**Cuándo usar**: cualquier query que agrupe por `asesor`, `aseguradora`, o cruce ambos, sin dimensión temporal.
+**Cuándo usar**: queries que agrupan por `asesor` (comercial Sekufin) sin dimensión temporal.
+
+**Diferencia clave con `polizas.nombre_de_agente`**:
+- `polizas_resumen.asesor` = **comercial interno Sekufin** (ventas, cartera)
+- `polizas.nombre_de_agente` = **intermediario autorizado por la aseguradora**
 
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `poliza_id` | bigint | ID dentro del ramo (puede colisionar entre ramos — **no usar como PK sin combinar con `ramo`**) |
-| `numero_de_poliza` | varchar | Identificador emitido por la aseguradora |
-| `ramo` | text | `'Vida' \| 'Autos' \| 'Daños' \| 'GMM'` |
-| `aseguradora` | varchar | Nombre de la aseguradora (GNP, Qualitas, MetLife, etc.) |
-| `prima` | numeric | Prima total |
-| `prima_neta` | numeric | Prima sin impuestos |
-| `estatus` | varchar | `'Vigente' \| 'Cancelada' \| 'Renovada'` |
-| `linea_negocio` | varchar | `'Personal' \| 'Comercial'` |
-| `asesor` | varchar | Nombre completo del comercial/asesor. Puede ser NULL para pólizas sin asignar. |
-
-### Limitaciones conocidas
-
-- Solo 1,122 filas (vs. 1,967 en `polizas`). La MV del core filtra algunas pólizas — investigar si aparece discrepancia en dashboards.
+| `poliza_id`, `numero_de_poliza`, `ramo`, `aseguradora`, `prima`, `prima_neta`, `estatus`, `linea_negocio` | como `polizas` |
+| `asesor` | varchar | Nombre del comercial interno Sekufin. Puede ser NULL |
 
 ---
 
-## `analytics.clientes` — clientes con integralidad (1,425 filas)
+## `analytics.clientes` — clientes con integralidad (~1,425 filas)
 
 Wrapper de `dashboard_integrality`. Un renglón por cliente con métricas agregadas por ramo.
 
-**Cuándo usar**: queries centradas en cliente — ranking de clientes, integralidad, prima total por cliente/asesor.
-
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `nombre_completo` | varchar | Nombre del cliente |
-| `rfc` | varchar | RFC |
-| `email`, `telefono` | varchar | Contacto |
-| `edad` | numeric | Edad actual |
-| `genero` | varchar | Género |
-| `estado_civil` | varchar | |
-| `asesor` | varchar | Nombre del comercial asignado |
-| `asesor_id` | bigint | FK a `sekufin_staff` |
-| `es_contratante` | boolean | TRUE si es contratante en al menos una póliza |
-| `polizas_auto` | bigint | # de pólizas de Autos |
-| `prima_auto` | numeric | Suma de prima en Autos |
-| `polizas_gmm` | bigint | # de pólizas GMM |
-| `prima_gmm` | numeric | Suma en GMM |
-| `polizas_vida` | bigint | # de pólizas Vida |
-| `prima_vida` | numeric | Suma en Vida |
-| `polizas_danos` | bigint | # de pólizas Daños |
-| `prima_danos` | numeric | Suma en Daños |
-| `integralidad` | integer | # de ramos distintos con al menos una póliza (1-4) |
+| `nombre_completo`, `rfc`, `email`, `telefono`, `edad`, `genero`, `estado_civil` | identificación |
+| `asesor`, `asesor_id` | comercial asignado |
+| `es_contratante` | bool | TRUE si es contratante en ≥1 póliza |
+| `polizas_auto` / `prima_auto` | # y suma por Autos |
+| `polizas_gmm` / `prima_gmm` | GMM |
+| `polizas_vida` / `prima_vida` | Vida |
+| `polizas_danos` / `prima_danos` | Daños |
+| `integralidad` | integer | # de ramos distintos con ≥1 póliza (1-4) |
 
 ### Derivaciones comunes
 
-- **Prima total por cliente**:
-  ```sql
-  COALESCE(prima_auto,0) + COALESCE(prima_gmm,0) + COALESCE(prima_vida,0) + COALESCE(prima_danos,0)
-  ```
-- **Top cliente del asesor X**: filtrar por `asesor` y ordenar por prima total desc.
+- **Prima total por cliente**: `COALESCE(prima_auto,0) + COALESCE(prima_gmm,0) + COALESCE(prima_vida,0) + COALESCE(prima_danos,0)`
+- **Top cliente del asesor X**: filtrar por `asesor`, ordenar por suma de primas desc.
 
 ---
 
@@ -115,26 +99,82 @@ Wrapper de `dashboard_integrality`. Un renglón por cliente con métricas agrega
 
 | Columna | Tipo | Descripción |
 |---|---|---|
-| `id` | bigint | PK (coincide con `asesor_id` en `clientes`) |
+| `id` | bigint | PK (match `asesor_id` en `clientes`) |
 | `nombre` | varchar | Nombre completo |
-| `rol` | varchar | Código de rol: `SA` Super Admin, `AD` Admin, `SL` Ventas, `OP` Operador, `RF` Referrer, `TC` Tech |
+| `rol` | varchar | `SA` Super Admin, `AD` Admin, `SL` Ventas, `OP` Operador, `RF` Referrer, `TC` Tech |
 | `telefono` | varchar | |
 
-**Nota**: para rankings de ventas, filtrar `rol IN ('SL','AD','SA')` (los que cierran pólizas). Los `RF` (referidores) no deben aparecer en rankings de producción.
+Para rankings de producción, filtrar `rol IN ('SL','AD','SA')`. `RF` son referidores internos, no productores.
+
+---
+
+## `analytics.bonos_metas` — metas y avance de bono por periodo (10 filas)
+
+Union de `sekufin_valores{vida,gmm,danos,autosgnp,autosqualitas}`. Cada renglón = meta/avance de un periodo.
+
+**Cuándo usar**: reportes de bonos, cumplimiento de meta vs. realizado, comparativas año contra año.
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `ramo` | text | `'Vida' \| 'GMM' \| 'Daños' \| 'Autos'` |
+| `aseguradora` | varchar | Solo Autos: `'GNP' \| 'Qualitas'`. NULL en otros |
+| `anio` | integer | 2025, 2026 en data actual |
+| `periodo_tipo` | text | `'T'` (trimestral, solo Vida) o `'C'` (cuatrimestral, resto) |
+| `periodo_num` | integer | Vida: 1-4; otros: 1-3 |
+| `meta` | numeric | Monto meta en MXN |
+| `negocios_totales` | integer | Count cerrados (Daños) |
+| `base_retencion` | numeric | Base medida de conservación (Vida) |
+| `base_conservada` | numeric | Primas de pólizas renovadas (Vida/GMM) |
+| `base_a_conservar` | numeric | Base esperada (Vida) |
+| `prima_renovacion` | numeric | Prima generada por renovaciones (Vida, Daños) |
+| `siniestros_pagados` | numeric | GMM y Autos GNP |
+| `primas_netas_pagadas` | numeric | Solo GMM |
+
+### Patrones de query
+
+- **% cumplimiento de meta (Daños)**: `negocios_totales * 1.0 / meta * 100`
+- **% conservación (Vida)**: `base_conservada * 1.0 / base_a_conservar * 100`
+- **Meta anual por ramo**: `sum(meta) GROUP BY ramo, anio`
+- **Comparativa YoY**: `GROUP BY ramo, anio, periodo_num` → line o pivot
+
+### Limitaciones
+
+- `tabla_productividad` y `tabla_conservacion` (JSONB en las tablas originales) **no expuestas** — tienen estructura por subramo/aseguradora que requiere vista específica.
+- Solo hay data 2025 y 2026.
+
+---
+
+## `analytics.referidores` — dimensión (25 filas)
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | bigint | PK (target de `polizas.referidor_id`) |
+| `nombre` | varchar | Nombre |
+| `rol` | varchar | `'prospectador'` u otros roles externos |
+
+⚠️ En testing los IDs no matchean con los `referidor_id` registrados en pólizas.
+
+---
+
+## `analytics.grupos` — dimensión (4 filas)
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `id` | bigint | PK |
+| `nombre` | varchar | Nombre del grupo |
+
+⚠️ `polizas.grupo` es texto libre, **no FK** a este id. Para agrupar pólizas por grupo, usar `polizas.grupo` directamente (y en testing está vacío).
 
 ---
 
 ## Qué NO está disponible (todavía)
 
-Si el usuario pide alguna de estas, responde explícitamente "aún no está en el catálogo analytics" y sugiere agregar una vista:
+Si el usuario pide algo aquí, responde explícitamente "aún no está en el catálogo analytics":
 
-- **Siniestros**: no hay tabla expuesta.
-- **Metas / bonos**: no hay tabla expuesta.
-- **Pipeline / prospectos**: no expuesto.
-- **Forma de pago**: columna existe en tablas crudas pero no en `analytics.*`.
+- **Siniestros detallados** (tabla por siniestro individual): solo agregados en `bonos_metas.siniestros_pagados`.
+- **Tabla productividad/conservación por aseguradora** (JSONB): no expuesta.
+- **LC (líneas comerciales) — pólizas y clientes**: tablas existen (`sekufin_polizavidalc`, `sekufin_clientelc`), vacías en testing.
+- **Forma de pago**: columna en tablas crudas, no expuesta.
 - **Suma asegurada / monto asegurado**: no expuesta.
-- **Siniestralidad**: depende de tabla de siniestros que no existe.
-- **Nivel hospitalario**: no expuesto.
-- **Grupo (A/B/C/D)**: no expuesto.
-
-Para exponer uno nuevo → extender `/tmp/analytics_v0.sql` con una nueva vista, o pedirle al equipo core que lo agregue.
+- **Nivel hospitalario (GMM)**: no expuesto.
+- **Pipeline / prospectos / funnel**: vive en Pipefy, no sincronizado aquí.
