@@ -53,6 +53,23 @@ const baseColors = {
     5: "hsla(210, 75%, 98%, 1.00)",
   },
 
+  // Sekufin brand orange (#ff6c2f base, hsl(16 100% 59%)). Escalado paralelo
+  // al de blue para que las rutas de shade/tint del sistema sigan funcionando
+  // al mapear brand -> sekufinOrange.
+  sekufinOrange: {
+    100: "hsla(16, 60%, 10%, 1.00)",
+    90: "hsla(16, 70%, 18%, 1.00)",
+    80: "hsla(16, 80%, 26%, 1.00)",
+    70: "hsla(16, 85%, 36%, 1.00)",
+    60: "hsla(16, 90%, 47%, 1.00)",
+    50: "hsla(16, 95%, 52%, 1.00)", // brand hover
+    40: "hsla(16, 100%, 59%, 1.00)", // #ff6c2f — brand principal Sekufin
+    30: "hsla(16, 100%, 72%, 1.00)",
+    20: "hsla(16, 95%, 87%, 1.00)", // focus ring
+    10: "hsla(16, 90%, 94%, 1.00)", // tint claro
+    5: "hsla(16, 80%, 98%, 1.00)",
+  },
+
   // Deprecated Gray
   gray: {
     100: "hsla(206, 16%, 8%, 1.00)", // background-primary-inverse
