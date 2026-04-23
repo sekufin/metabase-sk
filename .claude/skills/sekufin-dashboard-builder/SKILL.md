@@ -48,6 +48,22 @@ Lee estos archivos **a demanda** según la tarea:
 
 Si ambas existen para el mismo término, **el concepto gana**.
 
+### Usar `default_viz_settings` de las métricas
+
+Cuando `lookup_metric` devuelve una métrica con `default_viz_settings`, **cópialas como base al crear el card**. Incluyen formato de moneda (MXN), escala (M para millones), goals (línea de meta 100% en cumplimiento), títulos de eje. Merge pattern:
+
+```
+viz_settings = {
+  **lookup_metric_result["default_viz_settings"],
+  "graph.dimensions": [tu_dim],
+  "graph.metrics": [tu_metric_col],
+}
+```
+
+**Respeta la convención `output_column`**: si la métrica dice `output_column: produccion`, escribe tu SQL con `AS produccion` (o el sufijo si agrupas — `sum(prima) AS produccion`). Los `column_settings` matchean por nombre exacto.
+
+Los defaults de Metabase instancia ya incluyen locale `es` + separadores MX + moneda MXN, así que para números crudos no necesitas configurar nada adicional.
+
 ## Flujo de trabajo
 
 ### 1. Interpretar la intención

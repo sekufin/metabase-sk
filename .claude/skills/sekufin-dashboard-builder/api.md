@@ -88,6 +88,18 @@ URL resultante: `http://localhost:3000/question/42`.
 }
 ```
 
+⚠️ **NO setees `graph.y_axis.auto_range: false` a menos que TAMBIÉN definas
+`graph.y_axis.min` y `graph.y_axis.max`.** Sin min/max, Metabase defaultea a
+0-100 y todos los valores reales (millones de pesos) quedan "fuera de rango" →
+barras uniformes + tooltip "cada punto está fuera de rango". El default
+`auto_range: true` es lo correcto en 95% de los casos — **omite la clave**.
+
+⚠️ **No hardcodees escalas numéricas** (ej. dividir por 1,000,000 en SQL para
+mostrar millones). Metabase formatea automáticamente si la columna es
+`numeric`. Si quieres mostrar "M" en el eje, usa
+`"column_settings": {"[\"name\",\"produccion\"]": {"number_style": "decimal", "scale": 0.000001, "suffix": "M"}}`
+en `visualization_settings`.
+
 **scalar**:
 ```json
 {
