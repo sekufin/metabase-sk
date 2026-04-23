@@ -167,6 +167,92 @@ Union de `sekufin_valores{vida,gmm,danos,autosgnp,autosqualitas}`. Cada renglón
 
 ---
 
+## `analytics.ops_emisiones` — cards activas del flujo de emisión (~24 filas)
+
+Cards que están en alguna de las 10 fases activas del pipeline de emisión (Pipefy `commercial-activity` sincronizado a Postgres vía `manage.py sync_ops_activity`). No incluye Finalizadas/Canceladas/Migradas.
+
+**Cuándo usar**: reportes operativos — cuántas cards hay, cuáles atrasadas, cuánto tiempo en cada fase, por comercial/ramo.
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `card_id` | varchar | PK — identificador de la card en Pipefy |
+| `titulo` | varchar | Título de la card (usualmente nombre del cliente) |
+| `ramo` | varchar | `'Gastos Médicos Individual' \| 'Vida individual' \| 'Autos' \| 'Danos' \| 'Viaje'` |
+| `comercial` | varchar | Nombre del comercial asignado |
+| `fase_actual` | varchar | Fase actual en el flujo (10 opciones canónicas) |
+| `fase_orden` | smallint | Posición en el flujo (1=Buzón inicial, 10=Entrega de póliza) |
+| `fecha_creacion` | timestamp | Cuándo se creó la card |
+| `fecha_ingreso_fase` | timestamp | Cuándo entró a la fase actual |
+| `dias_en_fase` | integer | **Calculado en tiempo real** contra `CURRENT_TIMESTAMP`. Siempre fresco. |
+| `threshold_dias` | integer | Días permitidos en esta fase según (fase, ramo). 0 = no aplica |
+| `atrasada` | boolean | **Calculado** — `dias_en_fase > threshold_dias` |
+| `dias_de_retraso` | integer | `max(0, dias_en_fase - threshold_dias)` |
+| `card_url` | text | URL directa de la card en Pipefy (para drill-down) |
+| `synced_at` | timestamp | Último sync del snapshot |
+
+### Fases canónicas (orden en el flujo)
+
+1. Buzón inicial
+2. Faltantes de documentación
+3. Documentación completa
+4. En firma del cliente
+5. Ingreso a aseguradora
+6. Activación de aseguradora
+7. Revisión de póliza
+8. Ajustes a la póliza
+9. Llenado de info
+10. Entrega de póliza
+
+### Patrones típicos
+
+- **% on-time**: `count(*) FILTER (WHERE NOT atrasada) * 100.0 / count(*)`
+- **Retraso promedio por fase**: `avg(dias_de_retraso) GROUP BY fase_actual`
+- **Cards atrasadas por comercial**: `GROUP BY comercial ORDER BY count DESC`
+- **Drill-down a Pipefy**: incluir `card_url` en el card (link)
+
+### Limitaciones conocidas
+
+- Dependent de `sync_ops_activity` que el sysadmin corre (no hay cron automático). Si `synced_at` tiene >24h, flagear al usuario.
+- Fases no-activas (Finalizadas, Canceladas, Migradas) NO aparecen aquí — para análisis post-cierre hay que consultar Mongo directo (no expuesto todavía).
+
+---
+
+## `analytics.ops_fases_historial` — transiciones de fase (~130 filas)
+
+Historial de todas las transiciones de fase por las cards en pipeline. Cada fila = una entrada en una fase (con `duration_seconds` si la card ya salió).
+
+| Columna | Tipo | Descripción |
+|---|---|---|
+| `card_id`, `titulo`, `ramo`, `comercial` | join con `ops_emisiones` |
+| `fase` | varchar | Nombre de la fase |
+| `duration_seconds` | bigint | Duración en la fase en segundos (NULL si aún está ahí) |
+| `duracion_dias` | numeric | Mismo en días (derivado) |
+| `first_time_in`, `last_time_in` | timestamp | Primera y última vez que entró a esa fase |
+| `se_atraso` | boolean | Si la card se atrasó durante esa permanencia (de Pipefy) |
+
+### Patrones
+
+- **Tiempo promedio por fase** (bottleneck detection): `avg(duracion_dias) GROUP BY fase`
+- **Distribución de duraciones** (outliers): `percentile_disc(0.5/0.9)`
+- **Cards que se atrasaron en fase X**: `WHERE fase = 'X' AND se_atraso`
+
+---
+
+## `analytics.ops_phase_thresholds` — dimensión (50 filas)
+
+Threshold oficial en días por combinación (fase, ramo). Dimensional, cambia rara vez. Se edita desde Django admin o migration.
+
+| Columna | Tipo |
+|---|---|
+| `phase` | varchar |
+| `ramo` | varchar |
+| `threshold_days` | integer |
+| `phase_order` | smallint |
+
+Usarla para queries como *"¿qué fase tiene más holgura para Autos?"* → `ORDER BY threshold_days DESC WHERE ramo='Autos'`.
+
+---
+
 ## Qué NO está disponible (todavía)
 
 Si el usuario pide algo aquí, responde explícitamente "aún no está en el catálogo analytics":
