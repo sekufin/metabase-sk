@@ -33,11 +33,20 @@ Lee estos archivos **a demanda** según la tarea:
 
 ## Tools — orden de uso recomendado
 
-1. **`lookup_metric(name)`** — Si el prompt menciona un término de negocio (producción, retención, ARPU...), busca la definición canónica ANTES de escribir SQL. Evita reinventar fórmulas.
-2. **`sample_rows(view, where?, columns?)`** — Ver 5 filas reales de una `analytics.*` cuando dudas del formato (categorías reales, rangos, NULLs).
-3. **`dry_run_sql(sql)`** — Valida con EXPLAIN + preview 10 filas. SIEMPRE antes de publicar un card.
-4. **`create_card` / `create_dashboard` / `set_dashcards`** — Publica en Metabase.
-5. **`done`** — Cierra con el resultado final.
+1. **`lookup_concept(name)`** — **PRIMER paso** si el prompt menciona un término específico del negocio (ej. "prima de ubicación", "bono integral", "base retenida", "cartera asignada"). Estos conceptos tienen fórmula exacta mantenida por el negocio. NO reinventes. Si devuelve `ok: true`, usa `formula_sql` como base.
+2. **`list_concepts(aplica_a?)`** — Si el prompt es ambiguo o quieres saber qué conceptos existen para un ramo (ej. todos los conceptos de GMM).
+3. **`lookup_metric(name)`** — Métricas genéricas (producción, conservación, ticket_promedio). Úsalas si `lookup_concept` no matchea o como complemento.
+4. **`sample_rows(view, where?, columns?)`** — Ver 5 filas reales de una `analytics.*` cuando dudas del formato.
+5. **`dry_run_sql(sql)`** — Valida con EXPLAIN + preview. SIEMPRE antes de publicar un card.
+6. **`create_card` / `create_dashboard` / `set_dashcards`** — Publica en Metabase.
+7. **`done`** — Cierra con el resultado final.
+
+### Jerarquía concepto vs. métrica
+
+- **`lookup_concept`** = definición específica del negocio contribuida por un humano Sekufin (ej. "Prima de ubicación" en GMM = fórmula exacta que matchea con el dashboard del core). **Es la fuente de verdad cuando existe**.
+- **`lookup_metric`** = fórmula genérica que aplica transversal (ej. "producción" = sum de prima en periodo). Úsala cuando no hay concepto específico.
+
+Si ambas existen para el mismo término, **el concepto gana**.
 
 ## Flujo de trabajo
 
@@ -112,9 +121,10 @@ Responde con:
 1. **Nunca escribas contra `public.*`**. El usuario `metabase_ro` ni siquiera tiene acceso — si tu SQL lo intenta, falla rápido.
 2. **Nunca `DROP`, `DELETE`, `UPDATE`, `CREATE`** en SQL. Solo `SELECT`.
 3. **Valida con EXPLAIN** antes de crear el card. Un card roto en producción es peor que preguntar 1 vez.
-4. **Human-in-the-loop durante beta**: al terminar, devuelve URL + pregunta "¿se ve bien? ¿lo muevo a tu colección personal o lo borro?". No marques como oficial sin confirmación.
-5. **Spanish first**: nombres de cards, titulos de ejes, títulos de dashboards siempre en español. La UI de Metabase también (`MB_SITE_LOCALE=es`).
-6. **Si una métrica no se puede calcular con `analytics.*` actual**, dilo explícitamente ("falta exponer X columna en la vista Y") y no inventes una aproximación silenciosamente.
+4. **Data vacía — detente y pregunta**. Si `dry_run_sql` devuelve todas las filas con la métrica principal en 0 o NULL (ej. "Cumplimiento Daños 2026" → todos los cuatrimestres con `negocios_totales=0`), **no publiques silenciosamente un chart vacío**. En el `summary` del `done` deja claro "La data está vacía para {ramo}/{periodo} — probablemente aún no ha sido cargada. ¿Quieres que use {alternativa}?" o ajusta el filtro a un periodo con data (ej. año anterior). Una respuesta "aquí está tu chart de ceros" es peor que un error.
+5. **Human-in-the-loop durante beta**: al terminar, devuelve URL + summary claro sobre lo que creaste. No marques como oficial sin confirmación.
+6. **Spanish first**: nombres de cards, titulos de ejes, títulos de dashboards siempre en español. La UI de Metabase también (`MB_SITE_LOCALE=es`).
+7. **Si una métrica no se puede calcular con `analytics.*` actual**, dilo explícitamente ("falta exponer X columna en la vista Y") y no inventes una aproximación silenciosamente.
 
 ## Credenciales (solo para desarrollo local)
 
