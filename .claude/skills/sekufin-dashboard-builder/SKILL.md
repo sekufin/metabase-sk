@@ -27,8 +27,17 @@ Lee estos archivos **a demanda** según la tarea:
 | Archivo | Cuándo leerlo |
 |---|---|
 | [glosario.md](glosario.md) | Siempre que el usuario use un término de negocio ambiguo (ej. "producción", "integralidad", "prima nueva"). |
-| [schema.md](schema.md) | Siempre al traducir NL → SQL. Define las vistas `analytics.*`, sus columnas y reglas de negocio críticas (ej. "póliza nueva = numero_renovacion IS NULL"). |
+| [schema.md](schema.md) | Siempre al traducir NL → SQL. Define las vistas `analytics.*`, sus columnas y reglas de negocio críticas. |
+| [metrics.yaml](metrics.yaml) | Definición canónica de métricas (producción, conservación, cumplimiento_meta, integralidad_promedio, ticket_promedio). **Accede vía `lookup_metric(name)`**, no leas directo. |
 | [api.md](api.md) | Al llamar la API de Metabase (crear card, crear dashboard, agregar card al dashboard, obtener database_id). |
+
+## Tools — orden de uso recomendado
+
+1. **`lookup_metric(name)`** — Si el prompt menciona un término de negocio (producción, retención, ARPU...), busca la definición canónica ANTES de escribir SQL. Evita reinventar fórmulas.
+2. **`sample_rows(view, where?, columns?)`** — Ver 5 filas reales de una `analytics.*` cuando dudas del formato (categorías reales, rangos, NULLs).
+3. **`dry_run_sql(sql)`** — Valida con EXPLAIN + preview 10 filas. SIEMPRE antes de publicar un card.
+4. **`create_card` / `create_dashboard` / `set_dashcards`** — Publica en Metabase.
+5. **`done`** — Cierra con el resultado final.
 
 ## Flujo de trabajo
 

@@ -1,0 +1,139 @@
+# Métricas canónicas de Sekufin
+#
+# Cada entrada define una métrica de negocio con:
+#   definicion:       qué mide en lenguaje de negocio
+#   sinonimos:        formas en las que los usuarios pueden pedirla
+#   sql_base:         query canónica (parametrizable con {placeholders})
+#   dimensiones:      cortes típicos (para GROUP BY)
+#   requiere_periodo: si necesita un rango de fechas (true/false)
+#   notas:            ambigüedades, limitaciones, gotchas
+#
+# El agente usa lookup_metric(name) para recuperar la entrada. Si el prompt
+# del usuario menciona un sinónimo, el agente parte de sql_base y lo adapta
+# según las dimensiones y filtros que el usuario haya pedido.
+
+produccion:
+  definicion: |
+    Prima emitida en un período. Incluye tanto pólizas nuevas como
+    renovaciones — ambas son "pluma" que genera ingreso para la agencia.
+  sinonimos: [emision, emisión, pluma, ventas_nuevas, negocios, produccion_nueva, producción]
+  sql_base: |
+    SELECT sum(prima) AS produccion
+    FROM analytics.polizas
+    WHERE fecha_desde BETWEEN {start} AND {end}
+  dimensiones:
+    - "ramo"
+    - "date_trunc('month', fecha_desde)"
+    - "date_trunc('quarter', fecha_desde)"
+    - "aseguradora_nombre"
+    - "linea_negocio"
+  requiere_periodo: true
+  notas: |
+    - No filtrar por numero_renovacion (no confiable).
+    - Para "producción NUEVA sin renovaciones", agregar estatus <> 'Renovada'
+      como aproximación, pero advertir al usuario que no es exacto
+      (las pólizas nuevas también pueden tener estatus='Renovada' si ya fueron
+      reemplazadas por una siguiente).
+    - Para cortar por asesor (comercial interno) usar analytics.polizas_resumen
+      en vez de analytics.polizas — pero perderás dimensión temporal.
+
+conservacion:
+  definicion: |
+    Porcentaje de pólizas cuya vigencia terminó en el periodo y fueron
+    renovadas. Mide la capacidad de retener clientes al vencimiento.
+    Para Vida también existe la métrica oficial del bono en
+    analytics.bonos_metas (base_conservada / base_a_conservar).
+  sinonimos: [retencion, retención, renovacion_rate, tasa_de_renovacion, conservación]
+  sql_base: |
+    SELECT
+      count(*) FILTER (WHERE estatus = 'Renovada') * 1.0
+        / NULLIF(count(*), 0) AS conservacion
+    FROM analytics.polizas
+    WHERE fecha_hasta BETWEEN {start} AND {end}
+  dimensiones:
+    - "ramo"
+    - "aseguradora_nombre"
+    - "date_trunc('quarter', fecha_hasta)"
+  requiere_periodo: true
+  notas: |
+    - El SQL de arriba es aproximación (divide renovadas entre todas las
+      vencidas en periodo, incluyendo canceladas). Para reporte oficial de
+      bono en Vida, prefiere bonos_metas.base_conservada / base_a_conservar.
+    - "Renovada" significa que la póliza FUE reemplazada — no que renovó.
+      La póliza nueva no aparece explícitamente como "renovación de".
+
+cumplimiento_meta:
+  definicion: |
+    Porcentaje de meta alcanzada por ramo y periodo. El numerador varía
+    por ramo porque cada uno mide su meta distinto:
+      Daños  → negocios_totales (conteo)
+      Vida   → base_conservada (prima conservada)
+      GMM    → primas_netas_pagadas
+      Autos  → no hay KPI directo en bonos_metas (solo siniestros_pagados;
+               la meta de producción requeriría otra fuente).
+  sinonimos: [pct_meta, cumplimiento, meta_alcanzada, avance_meta, "% de meta"]
+  sql_base: |
+    -- Daños (cuatrimestral, por negocios)
+    SELECT ramo, anio, periodo_tipo, periodo_num,
+           negocios_totales * 1.0 / NULLIF(meta, 0) AS pct_cumplimiento
+    FROM analytics.bonos_metas
+    WHERE ramo = 'Daños' AND anio = {anio};
+
+    -- Vida (trimestral, por conservación)
+    SELECT ramo, anio, periodo_tipo, periodo_num,
+           base_conservada * 1.0 / NULLIF(base_a_conservar, 0) AS pct_cumplimiento
+    FROM analytics.bonos_metas
+    WHERE ramo = 'Vida' AND anio = {anio};
+  dimensiones:
+    - "ramo"
+    - "anio"
+    - "periodo_num"
+    - "aseguradora"  # aplica solo a Autos
+  requiere_periodo: false
+  notas: |
+    - Si el usuario pide "cumplimiento" sin especificar ramo, arma un
+      dashboard con una card por ramo (porque la fórmula cambia).
+    - Autos en bonos_metas no tiene meta de producción — si el usuario lo
+      pide, decirle "no expuesto todavía, la meta de Autos requiere data
+      aparte".
+
+integralidad_promedio:
+  definicion: |
+    Promedio de ramos distintos por cliente (rango 1-4). Mayor integralidad
+    = cliente más valioso, menos churneable.
+  sinonimos: [integralidad_media, ramos_por_cliente, multi_ramo]
+  sql_base: |
+    SELECT avg(integralidad)::numeric(4,2) AS integralidad_promedio
+    FROM analytics.clientes
+    WHERE es_contratante = true
+  dimensiones:
+    - "asesor"
+    - "CASE WHEN integralidad = 1 THEN 'Básico' WHEN integralidad = 2 THEN 'Dual' WHEN integralidad = 3 THEN 'Triple' ELSE 'Integral' END"
+  requiere_periodo: false
+  notas: |
+    - Filtrar por es_contratante=true para excluir asegurados/beneficiarios
+      que no pagan primas (infla artificialmente el denominador).
+    - La distribución suele ser: ~60% integralidad=1, ~25% =2, ~10% =3, ~5% =4.
+    - Para "% de clientes integrales", filtrar integralidad >= 3 y dividir.
+
+ticket_promedio:
+  definicion: |
+    Prima promedio por póliza. Indicador de ticket/ARPU de las pólizas
+    activas.
+  sinonimos: [prima_promedio, avg_prima, ticket_medio, prima_media, ARPU]
+  sql_base: |
+    SELECT avg(prima)::numeric(12,2) AS ticket_promedio
+    FROM analytics.polizas
+    WHERE estatus = 'Vigente'
+  dimensiones:
+    - "ramo"
+    - "aseguradora_nombre"
+    - "linea_negocio"
+    - "date_trunc('year', fecha_desde)"
+  requiere_periodo: false
+  notas: |
+    - Por default filtrar estatus='Vigente' para no diluir con canceladas.
+    - Si el usuario pide "ticket de producción nueva", filtrar fecha_desde
+      en periodo en lugar de estatus.
+    - GMM suele tener ticket 3-5x más alto que Autos; agrupa por ramo para
+      evitar promedios engañosos si mezclas.
