@@ -198,6 +198,48 @@ Responde con:
 
    **Regla**: con filtros tipo `dimension`, el tag se expande a la cláusula completa (columna + operador + valores). Siempre solo `{{tag_name}}`.
 
+3c. **Filtros a nivel dashboard** (afectan varios cards a la vez) — **fuertemente recomendados** cuando el dashboard tiene 2+ cards que comparten una dimensión (ej. Ramo, Aseguradora, Año). Un solo widget arriba filtra todos a la vez.
+
+   **Receta canónica** (úsala siempre que el usuario pida "dashboard con filtros de X"):
+
+   1. **Todas las cards del dashboard usan el MISMO nombre de template-tag**
+      para la dimensión compartida. Ejemplo: todas usan `ramo_filter`.
+      ```sql
+      SELECT ramo, sum(prima) ...
+      FROM analytics.polizas
+      WHERE 1=1 [[ AND {{ramo_filter}} ]]
+      GROUP BY ramo
+      ```
+      + `filters=[{"name":"ramo_filter","schema":"analytics","table":"polizas","column":"ramo"}]`
+
+   2. **Crea el dashboard con el parameter correspondiente** — slug igual al
+      template-tag de las cards:
+      ```json
+      create_dashboard(
+        name="Ejecutivo — Producción",
+        parameters=[{"slug": "ramo_filter", "label": "Ramo"}]
+      )
+      ```
+
+   3. **En `set_dashcards`, conecta el parameter del dashboard con el tag de
+      cada card** via `param_mappings`:
+      ```json
+      {
+        "card_id": 42, "col": 0, "row": 0, "size_x": 12, "size_y": 6,
+        "param_mappings": [
+          {"dashboard_param_slug": "ramo_filter", "card_template_tag_name": "ramo_filter"}
+        ]
+      }
+      ```
+
+   Con eso el usuario ve UN filtro "Ramo" arriba del dashboard; seleccionar "Vida" filtra los 5 cards simultáneamente.
+
+   **Cuándo usar dashboard filter vs. card filter individual**:
+   - 2+ cards con la misma dimensión → **dashboard filter** (siempre).
+   - Card único o filtros distintos por card → **card filter** (vía `filters` en create_card).
+
+   **Gotcha**: si una card **no** tiene el template-tag declarado con el mismo nombre que el slug del dashboard parameter, el mapping falla silenciosamente (la card no se filtra). Asegúrate de que `create_card(filters=[...])` incluya TODOS los filtros que vayan a mapearse a nivel dashboard.
+
    **Para `update_card` agregando filtros a un card existente**:
    Pasa tanto `sql` (reescrito con los `[[ ]]`) como `filters`. Sin el SQL, el `update_card` deja el query viejo.
 4. **Data vacía — detente y pregunta**. Si `dry_run_sql` devuelve todas las filas con la métrica principal en 0 o NULL (ej. "Cumplimiento Daños 2026" → todos los cuatrimestres con `negocios_totales=0`), **no publiques silenciosamente un chart vacío**. En el `summary` del `done` deja claro "La data está vacía para {ramo}/{periodo} — probablemente aún no ha sido cargada. ¿Quieres que use {alternativa}?" o ajusta el filtro a un periodo con data (ej. año anterior). Una respuesta "aquí está tu chart de ceros" es peor que un error.
