@@ -169,12 +169,34 @@ Responde con:
 
    **Convenciones**:
    - Nombre del tag en SQL: `<columna>_filter` (ej. `ramo_filter`, `comercial_filter`, `anio_filter`).
-   - `WHERE 1=1` al inicio permite que los `[[ AND ]]` opcionales no rompan el SQL cuando no hay filtros.
+   - `WHERE 1=1` al inicio permite que los `[[ AND ]]` opcionales no rompan el SQL cuando no hay filtros. Alternativa: un `WHERE` sin la condición 1=1 si ya tienes al menos una condición fija (ej. `WHERE asesor = 'X'`).
    - `widget_type`:
      - `string/=` — multi-select para texto (el más común, default).
      - `number/=` / `number/between` — para numéricos.
      - `date/all-options` — para fechas (rango, relativo, específico).
    - El `column` debe ser la **columna real de la vista analytics**, no un alias del SELECT.
+
+   **⚠️ Sintaxis CRÍTICA — no metas la columna dos veces**:
+
+   ✅ **Correcto** — el tag solo, Metabase expande con la columna:
+   ```sql
+   [[ AND {{ramo_filter}} ]]
+   ```
+   Se expande internamente a `AND "analytics"."polizas"."ramo" IN ('Autos', 'Vida')`.
+
+   ❌ **Incorrecto** — duplica la columna, Postgres lo lee como llamada a función:
+   ```sql
+   [[ AND polizas_auto {{filtro_autos}} ]]
+   ```
+   Esto produce `AND polizas_auto "polizas_auto" IN (1,2,3)` y Postgres falla con `function polizas_auto(boolean) does not exist`.
+
+   ❌ También incorrecto — NO uses operadores de comparación antes del tag:
+   ```sql
+   [[ AND ramo = {{ramo_filter}} ]]       -- MAL (dimension se expande con operador propio)
+   [[ AND integralidad > {{int_filter}} ]] -- MAL
+   ```
+
+   **Regla**: con filtros tipo `dimension`, el tag se expande a la cláusula completa (columna + operador + valores). Siempre solo `{{tag_name}}`.
 
    **Para `update_card` agregando filtros a un card existente**:
    Pasa tanto `sql` (reescrito con los `[[ ]]`) como `filters`. Sin el SQL, el `update_card` deja el query viejo.
