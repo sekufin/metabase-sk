@@ -31,7 +31,9 @@ El rol `metabase_ro` tiene `SELECT` exclusivamente sobre `analytics.*`. `public.
 | `aseguradora_nombre` | varchar | Nombre legible (GNP, Qualitas, AXA, etc.) — LEFT JOINed |
 | `producto_id` | bigint | FK |
 | `producto_nombre` | varchar | Nombre del producto — LEFT JOINed |
-| `contratante_id` | bigint | FK al contratante |
+| `contratante_id` | bigint | FK al contratante (`sekufin_contractor.id`) |
+| `contratante_nombre` | varchar | Nombre completo del contratante (LEFT JOIN vía `contractor.contractor_id` → `platformuser.nombre_completo`). Útil para filtrar pólizas por cliente específico (ILIKE recomendado, hay tildes y mayúsculas inconsistentes) |
+| `contratante_rfc` | varchar | RFC del contratante. Útil para deduplicar clientes que aparecen con variantes de nombre |
 | `grupo` | varchar | Grupo empresarial/familiar (texto libre, no FK). ⚠️ Daños no tiene columna (NULL). En testing todos NULL |
 | `referidor_id` | bigint | FK a `analytics.referidores`. En testing: no hay matches |
 | `clave_de_agente` | varchar | Clave del agente autorizado por la aseguradora |
