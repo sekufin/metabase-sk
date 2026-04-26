@@ -6,15 +6,17 @@ import { getBaseColorsForThemeDefinitionOnly } from "./base-colors";
 
 const baseColors = getBaseColorsForThemeDefinitionOnly();
 
+// Sekufin fork: paleta de series rebrandeada con naranja #ff6c2f como primario.
+// Los siguientes colores complementan visualmente sin competir por atención.
 export const DEFAULT_ACCENT_COLORS: ChartColorV2[] = [
-  "#509EE3", // accent0 - blue
-  "#88BF4D", // accent1 - green
-  "#A989C5", // accent2 - purple
-  "#EF8C8C", // accent3 - red
-  "#F9D45C", // accent4 - yellow
-  "#F2A86F", // accent5 - orange
-  "#98D9D9", // accent6 - cyan
-  "#7172AD", // accent7 - indigo
+  "#ff6c2f", // accent0 - Sekufin brand orange
+  "#3fa66b", // accent1 - green (positivo/conservación)
+  "#4A90E2", // accent2 - blue (serie secundaria fría)
+  "#d9534f", // accent3 - red (pérdidas/alertas)
+  "#f7c948", // accent4 - yellow (pendiente/neutral)
+  "#7f66d4", // accent5 - purple
+  "#49b3c8", // accent6 - teal
+  "#8b6d4e", // accent7 - brown
 ];
 
 export const LIGHT_THEME_ACCENT_COLORS: ChartColorV2[] = [

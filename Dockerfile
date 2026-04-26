@@ -16,7 +16,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install wget apt-transport-h
     && apt install temurin-21-jdk -y \
     && curl -O https://download.clojure.org/install/linux-install-1.12.0.1488.sh \
     && chmod +x linux-install-1.12.0.1488.sh \
-    && ./linux-install-1.12.0.1488.sh
+    && ./linux-install-1.12.0.1488.sh \
     && curl -LsSf https://astral.sh/uv/install.sh | sh
 
 ENV PATH="/root/.local/bin:$PATH"
@@ -32,7 +32,7 @@ RUN npm install -g bun
 # install frontend dependencies
 RUN bun install --frozen-lockfile
 
-RUN INTERACTIVE=false CI=true MB_EDITION=$MB_EDITION bin/build.sh :version ${VERSION}
+RUN JAVA_OPTS="-Xmx6g -XX:MaxMetaspaceSize=1g" INTERACTIVE=false CI=true MB_EDITION=$MB_EDITION bin/build.sh :version ${VERSION}
 
 # ###################
 # # STAGE 2: runner

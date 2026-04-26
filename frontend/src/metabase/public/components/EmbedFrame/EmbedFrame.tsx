@@ -109,9 +109,9 @@ export const EmbedFrame = ({
   contentClassName,
 }: EmbedFrameProps) => {
   useGlobalTheme(theme);
-  const hasEmbedBranding = useSelector(
-    (state) => !getSetting(state, "hide-embed-branding?"),
-  );
+  // Sekufin fork: branding "Powered by Metabase" removido del footer de embeds.
+  // Upstream lo controla con el setting EE 'hide-embed-branding?' (gated en MCL).
+  const hasEmbedBranding = false;
 
   const isPublicDashboard = Boolean(
     dashboard && getDashboardType(dashboard.id) === "public",
